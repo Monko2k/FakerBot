@@ -79,44 +79,54 @@ func main() {
 }
 
 func Game(data *GosuData) {
-	origin := "http://localhost/"
-	url := "ws://localhost:" + Config.GosuPort + "/ws"
-	ws, err := websocket.Dial(url, "", origin)
-	if err != nil {
-		log.Fatal(err)
-	}
-	log.Println("Connected to Gosumemory")
 	for {
-		err = websocket.JSON.Receive(ws, &data)
+		origin := "http://localhost/"
+		url := "ws://localhost:" + Config.GosuPort + "/ws"
+		ws, err := websocket.Dial(url, "", origin)
 		if err != nil {
-			log.Println(err.Error())
-			return
+			log.Println(err)
+		}
+		log.Println("Connected to Gosumemory")
+		for {
+			err = websocket.JSON.Receive(ws, &data)
+			if err != nil {
+				log.Println(err.Error())
+				log.Println("Gosumemory Websocket Disconnected, attempting to reconnect")
+
+				return
+			}
 		}
 	}
+	
+
 	
 }
 
 
 func Bancho(out <-chan string) {
-	conn, err := net.Dial("tcp", "cho.ppy.sh:6667")
-	if err != nil {
-		log.Fatalln("Bancho Dial failure", err)
+	for {
+		conn, err := net.Dial("tcp", "cho.ppy.sh:6667")
+		if err != nil {
+			log.Println("Bancho Dial failure", err)
+		}
+	
+		config := irc.ClientConfig{
+			Nick: Config.BanchoUser,
+			Pass: Config.BanchoPass,
+	
+			Handler: irc.HandlerFunc(func(c *irc.Client, m *irc.Message) {
+				HandleBancho(c, m, out)
+			}),
+		}
+	
+		client := irc.NewClient(conn, config)
+		err = client.Run()
+		if err != nil {
+			log.Println("Bancho Create failure", err)
+		}
+		log.Println("Bancho Disconnected, attempting to reconnect")
 	}
-
-	config := irc.ClientConfig{
-		Nick: Config.BanchoUser,
-		Pass: Config.BanchoPass,
-
-		Handler: irc.HandlerFunc(func(c *irc.Client, m *irc.Message) {
-			HandleBancho(c, m, out)
-		}),
-	}
-
-	client := irc.NewClient(conn, config)
-	err = client.Run()
-	if err != nil {
-		log.Fatalln("Bancho Create failure", err)
-	}
+	
 }
 
 func HandleBancho(c *irc.Client, m *irc.Message, out <-chan string) {
@@ -138,29 +148,33 @@ func HandleBancho(c *irc.Client, m *irc.Message, out <-chan string) {
 }
 
 func Twitch(out chan<-string, data *GosuData) {
-	conn, err := net.Dial("tcp", "irc.chat.twitch.tv:6667")
-	if err != nil {
-		log.Fatalln("Twitch Dial failure", err)
+	for {
+		conn, err := net.Dial("tcp", "irc.chat.twitch.tv:6667")
+		if err != nil {
+			log.Println("Twitch Dial failure", err)
+		}
+		config := irc.ClientConfig{
+			Nick: Config.TwitchUser,
+			Pass: Config.TwitchPass,
+	
+			Handler: irc.HandlerFunc(func(c *irc.Client, m *irc.Message) {
+				HandleTwitch(c, m, out, data)
+			}),
+		}
+	
+		client := irc.NewClient(conn, config)
+		err = client.Run()
+		if err != nil {
+			log.Println("Twitch Create failure", err)
+		}
+		log.Println("Bancho Disconnected, attempting to reconnect")
 	}
-	config := irc.ClientConfig{
-		Nick: Config.TwitchUser,
-		Pass: Config.TwitchPass,
 
-		Handler: irc.HandlerFunc(func(c *irc.Client, m *irc.Message) {
-			HandleTwitch(c, m, out, data)
-		}),
-	}
-
-	client := irc.NewClient(conn, config)
-	err = client.Run()
-	if err != nil {
-		log.Fatalln("Twitch Create failure", err)
-	}
 }
 
 func HandleTwitch(c *irc.Client, m *irc.Message, out chan<-string, data *GosuData) {
 	if m.Command == "001" {
-		c.Write("JOIN #" + Config.TwitchUser) 
+		c.Write("JOIN #" + strings.ToLower(Config.TwitchUser)) // lol
 		log.Println("Connected to Twitch")
 	} else if m.Command == "PRIVMSG" && c.FromChannel(m) {
 		message := strings.ToLower(m.Params[1])
@@ -298,6 +312,8 @@ func HandleTwitch(c *irc.Client, m *irc.Message, out chan<-string, data *GosuDat
 					SendTwitchMessage(c, responsemessage)
 				}
 			}
+		} else {
+			log.Println(m.Prefix.User, message)
 		}
 
 		if message == "!ping" {
