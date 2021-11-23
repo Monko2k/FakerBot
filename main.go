@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	oppai "github.com/flesnuk/oppai5"
 	"golang.org/x/net/websocket"
@@ -79,50 +80,51 @@ func main() {
 }
 
 func Game(data *GosuData) {
-
-	origin := "http://localhost/"
-	url := "ws://localhost:" + Config.GosuPort + "/ws"
-	ws, err := websocket.Dial(url, "", origin)
-	if err != nil {
-		log.Println(err)
-	}
-	log.Println("Connected to Gosumemory")
 	for {
-		err = websocket.JSON.Receive(ws, &data)
+		origin := "http://localhost/"
+		url := "ws://localhost:" + Config.GosuPort + "/ws"
+		ws, err := websocket.Dial(url, "", origin)
 		if err != nil {
-			log.Println(err.Error())
-			log.Println("Gosumemory Websocket Disconnected, attempting to reconnect")
+			log.Println("Gosumemory Websocket failed to connect, reattempting connection (5s)")
+		} else {
+			log.Println("Connected to Gosumemory")
+			for {
+				err = websocket.JSON.Receive(ws, &data)
+				if err != nil {
+					log.Println(err.Error())
+					log.Println("Gosumemory Websocket Disconnected, attempting to reconnect (5s)")
+					break
+				}
+			}
 		}
+		time.Sleep(5 * time.Second)
 	}
-
-	
-
-	
 }
 
 
 func Bancho(out <-chan string) {
-	conn, err := net.Dial("tcp", "cho.ppy.sh:6667")
-	if err != nil {
-		log.Println("Bancho Dial failure", err)
+	for {
+		conn, err := net.Dial("tcp", "cho.ppy.sh:6667")
+		if err != nil {
+			log.Println("Bancho failed to connect, reattempting connection (5s)")
+		} else {
+			config := irc.ClientConfig{
+				Nick: Config.BanchoUser,
+				Pass: Config.BanchoPass,
+		
+				Handler: irc.HandlerFunc(func(c *irc.Client, m *irc.Message) {
+					HandleBancho(c, m, out)
+				}),
+			}
+		
+			client := irc.NewClient(conn, config)
+			err = client.Run()
+			if err != nil {
+				log.Println("Bancho Disconnected, attempting to reconnect (5s)")
+			}
+		}
+		time.Sleep(5 * time.Second)
 	}
-
-	config := irc.ClientConfig{
-		Nick: Config.BanchoUser,
-		Pass: Config.BanchoPass,
-
-		Handler: irc.HandlerFunc(func(c *irc.Client, m *irc.Message) {
-			HandleBancho(c, m, out)
-		}),
-	}
-
-	client := irc.NewClient(conn, config)
-	err = client.Run()
-	if err != nil {
-		log.Println("Bancho Create failure", err)
-	}
-	log.Println("Bancho Disconnected, attempting to reconnect")
-	
 }
 
 func HandleBancho(c *irc.Client, m *irc.Message, out <-chan string) {
@@ -144,26 +146,28 @@ func HandleBancho(c *irc.Client, m *irc.Message, out <-chan string) {
 }
 
 func Twitch(out chan<-string, data *GosuData) {
-	conn, err := net.Dial("tcp", "irc.chat.twitch.tv:6667")
-	if err != nil {
-		log.Println("Twitch Dial failure", err)
+	for {
+		conn, err := net.Dial("tcp", "irc.chat.twitch.tv:6667")
+		if err != nil {
+			log.Println("Twitch failed to connect, attempting to reconnect (5s)")
+		} else {
+			config := irc.ClientConfig{
+				Nick: Config.TwitchUser,
+				Pass: Config.TwitchPass,
+		
+				Handler: irc.HandlerFunc(func(c *irc.Client, m *irc.Message) {
+					HandleTwitch(c, m, out, data)
+				}),
+			}
+		
+			client := irc.NewClient(conn, config)
+			err = client.Run()
+			if err != nil {
+				log.Println("Twitch Disconnected, attempting to reconnect (5s)")
+			}
+		}
+		time.Sleep(5 * time.Second)
 	}
-	config := irc.ClientConfig{
-		Nick: Config.TwitchUser,
-		Pass: Config.TwitchPass,
-
-		Handler: irc.HandlerFunc(func(c *irc.Client, m *irc.Message) {
-			HandleTwitch(c, m, out, data)
-		}),
-	}
-
-	client := irc.NewClient(conn, config)
-	err = client.Run()
-	if err != nil {
-		log.Println("Twitch Create failure", err)
-	}
-	log.Println("Bancho Disconnected, attempting to reconnect")
-
 }
 
 func HandleTwitch(c *irc.Client, m *irc.Message, out chan<-string, data *GosuData) {
@@ -172,32 +176,32 @@ func HandleTwitch(c *irc.Client, m *irc.Message, out chan<-string, data *GosuDat
 		log.Println("Connected to Twitch")
 	} else if m.Command == "PRIVMSG" && c.FromChannel(m) {
 		message := strings.ToLower(m.Params[1])
-		urlregex, _ := regexp.Compile(`https:\S+`)
+		urlregex := regexp.MustCompile(`https:\S+`)
 		if urlregex.MatchString(message) {
 			beatmap_link := urlregex.FindString(message)
 			var is_b_link bool
 			var is_s_link bool
-			undetermined_link, _ := regexp.Compile(`^https:\/\/osu.ppy.sh\/beatmapsets`)
+			undetermined_link := regexp.MustCompile(`^https:\/\/osu.ppy.sh\/beatmapsets`)
 			if undetermined_link.MatchString(beatmap_link) {
 				is_b_link = strings.Contains(beatmap_link, "#osu") 
 				is_s_link = !is_b_link
 			} else {
-				b_link_regex, _ := regexp.Compile(`(^https:\/\/osu.ppy.sh\/b\/)|(^https:\/\/old.ppy.sh\/b\/)|(^https:\/\/osu.ppy.sh\/beatmaps)`)
-				s_link_regex, _ := regexp.Compile(`(^https:\/\/osu.ppy.sh\/s\/)|(^https:\/\/old.ppy.sh\/s\/)`)
+				b_link_regex := regexp.MustCompile(`(^https:\/\/osu.ppy.sh\/b\/)|(^https:\/\/old.ppy.sh\/b\/)|(^https:\/\/osu.ppy.sh\/beatmaps)`)
+				s_link_regex := regexp.MustCompile(`(^https:\/\/osu.ppy.sh\/s\/)|(^https:\/\/old.ppy.sh\/s\/)`)
 				is_b_link = b_link_regex.MatchString(beatmap_link)
 				is_s_link = s_link_regex.MatchString(beatmap_link)
 			}
 
 			if is_b_link || is_s_link {
 				
-				beatmap_idregex, _ := regexp.Compile(`\d+$`)
+				beatmap_idregex := regexp.MustCompile(`\d+$`)
 				if beatmap_idregex.MatchString(beatmap_link) {
-					hd, _ := regexp.Compile(`(?i)(hd)|(hidden)`)
-					hr, _ := regexp.Compile(`(?i)(hr)|(hardrock)|(hard rock)`)
-					dt, _ := regexp.Compile(`(?i)(dt)|(nc)|(doubletime)|(double time)|(nightcore)|(night core)`)
-					ez, _ := regexp.Compile(`(?i)(ez)|(easy)`)
-					fl, _ := regexp.Compile(`(?i)(fl)|(flashlight)|(flash light)`)
-					ht, _ := regexp.Compile(`(?i)(ht[^t])|(ht$)|(halftime)|(half time)`)
+					hd := regexp.MustCompile(`(?i)(hd)|(hidden)`)
+					hr := regexp.MustCompile(`(?i)(hr)|(hardrock)|(hard rock)`)
+					dt := regexp.MustCompile(`(?i)(dt)|(nc)|(doubletime)|(double time)|(nightcore)|(night core)`)
+					ez := regexp.MustCompile(`(?i)(ez)|(easy)`)
+					fl := regexp.MustCompile(`(?i)(fl)|(flashlight)|(flash light)`)
+					ht := regexp.MustCompile(`(?i)(ht[^t])|(ht$)|(halftime)|(half time)`)
 
 
 					var mods uint32 = 0
@@ -307,7 +311,7 @@ func HandleTwitch(c *irc.Client, m *irc.Message, out chan<-string, data *GosuDat
 				}
 			}
 		} else {
-			log.Println(m.Prefix.User, message)
+			log.Println(fmt.Sprintf("%s | %s", m.Prefix.User, m.Params[1]))
 		}
 
 		if message == "!ping" {
@@ -329,7 +333,7 @@ func SendTwitchMessage(c *irc.Client, m string) {
 	c.WriteMessage(&irc.Message{
 		Command: "PRIVMSG",
 		Params: []string{
-			"#" + Config.TwitchUser,
+			"#" + strings.ToLower(Config.TwitchUser),
 			m,
 		},
 	})
