@@ -131,17 +131,23 @@ func HandleBancho(c *irc.Client, m *irc.Message, out <-chan string) {
 	if m.Command == "001" {
 		c.Write("JOIN " + Config.BanchoUser)
 		log.Println("Connected to Bancho")
-		for {
-			msg := <- out
-			c.WriteMessage(&irc.Message{
-				Command: "PRIVMSG",
-				Params: []string{
-					Config.BanchoUser,
-					msg,
-				},
-			})
-		}				
+		go SendRequest(c, out)
+	} else if m.Command == "PING" {
+		c.Write("PONG")
 	} 
+}
+
+func SendRequest(c *irc.Client, out <- chan string) {
+	for {
+		msg := <- out
+		c.WriteMessage(&irc.Message{
+			Command: "PRIVMSG",
+			Params: []string{
+				Config.BanchoUser,
+				msg,
+			},
+		})
+	}				
 
 }
 
@@ -164,7 +170,7 @@ func Twitch(out chan<-string, data *GosuData) {
 			err = client.Run()
 			if err != nil {
 				log.Println("Twitch Disconnected, attempting to reconnect (5s)")
-			}
+				}
 		}
 		time.Sleep(5 * time.Second)
 	}
@@ -174,28 +180,33 @@ func HandleTwitch(c *irc.Client, m *irc.Message, out chan<-string, data *GosuDat
 	if m.Command == "001" {
 		c.Write("JOIN #" + strings.ToLower(Config.TwitchUser)) // lol
 		log.Println("Connected to Twitch")
+	} else if m.Command == "PING" {
+		c.Write("PONG")
 	} else if m.Command == "PRIVMSG" && c.FromChannel(m) {
 		message := strings.ToLower(m.Params[1])
 		urlregex := regexp.MustCompile(`https:\S+`)
 		if urlregex.MatchString(message) {
 			beatmap_link := urlregex.FindString(message)
 			var is_b_link bool
-			var is_s_link bool
+			//var is_s_link bool 
+			// I don't feel like implementing shit for set links
 			undetermined_link := regexp.MustCompile(`^https:\/\/osu.ppy.sh\/beatmapsets`)
 			if undetermined_link.MatchString(beatmap_link) {
 				is_b_link = strings.Contains(beatmap_link, "#osu") 
-				is_s_link = !is_b_link
+				//is_s_link = !is_b_link
 			} else {
 				b_link_regex := regexp.MustCompile(`(^https:\/\/osu.ppy.sh\/b\/)|(^https:\/\/old.ppy.sh\/b\/)|(^https:\/\/osu.ppy.sh\/beatmaps)`)
-				s_link_regex := regexp.MustCompile(`(^https:\/\/osu.ppy.sh\/s\/)|(^https:\/\/old.ppy.sh\/s\/)`)
+				//s_link_regex := regexp.MustCompile(`(^https:\/\/osu.ppy.sh\/s\/)|(^https:\/\/old.ppy.sh\/s\/)`)
 				is_b_link = b_link_regex.MatchString(beatmap_link)
-				is_s_link = s_link_regex.MatchString(beatmap_link)
+				//is_s_link = s_link_regex.MatchString(beatmap_link)
 			}
 
-			if is_b_link || is_s_link {
+			if is_b_link {
 				
-				beatmap_idregex := regexp.MustCompile(`\d+$`)
+				beatmap_idregex := regexp.MustCompile(`((\/b\/)|(su\/)|(ps\/))(\d+)`) // holy shittt
 				if beatmap_idregex.MatchString(beatmap_link) {
+					
+					beatmap_id := beatmap_idregex.FindString(beatmap_link)[3:]
 					hd := regexp.MustCompile(`(?i)(hd)|(hidden)`)
 					hr := regexp.MustCompile(`(?i)(hr)|(hardrock)|(hard rock)`)
 					dt := regexp.MustCompile(`(?i)(dt)|(nc)|(doubletime)|(double time)|(nightcore)|(night core)`)
@@ -233,8 +244,7 @@ func HandleTwitch(c *irc.Client, m *irc.Message, out chan<-string, data *GosuDat
 						modstring += " "
 					}
 
-
-					url := "https://osu.ppy.sh/api/get_beatmaps?k=" + Config.OsuApiKey + "&b=" + beatmap_idregex.FindString(beatmap_link)
+					url := "https://osu.ppy.sh/api/get_beatmaps?k=" + Config.OsuApiKey + "&b=" + beatmap_id
 					client := &http.Client {
 					}
 					req, err := http.NewRequest("GET", url, nil)
@@ -262,7 +272,12 @@ func HandleTwitch(c *irc.Client, m *irc.Message, out chan<-string, data *GosuDat
 						log.Println(err.Error())
 						return
 					}
+					if len(response) == 0 {
+						log.Println("failed API fetch Lol")
+						return
+					}
 					apiresponse := response[0]
+					
 					var sr float64
 					if mods > 0 {
 						//SHIT WILL JUST NOT DO ANYTHING IF THERE IS AN ERROR LOL!
