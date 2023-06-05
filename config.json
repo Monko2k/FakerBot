@@ -1,6 +1,6 @@
 {
     "TwitchUser": "",
-    "TwitchPass": "",
+    "TwitchPass": "oauth:",
     "BanchoUser": "",
     "BanchoPass": "",
     "OsuApiKey": "",

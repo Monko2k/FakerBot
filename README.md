@@ -22,7 +22,7 @@ Fill out `config.json` with the following values:
 
 `TwitchUser`: your Twitch channel name
 
-`TwitchPass`: your Twitch IRC authentication token 
+`TwitchPass`: your Twitch IRC authentication token (format is `oauth:<token>` where `<token>` is the token)
 
 (Follow [this guide](https://dev.twitch.tv/docs/irc/guide) to get both of these)
 
